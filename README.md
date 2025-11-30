@@ -27,9 +27,9 @@ git clone <repository_url>
 cd msu_llm
 ```
 
-2. Установите зависимости:
+2. Установите зависимости через проектный менеджер (в директории с проектом):
 ```bash
-pip install -r requirements.txt
+uv sync
 ```
 3. Настройте конфигурацию:
    - Отредактируйте `configs/config.yaml`
@@ -177,16 +177,8 @@ jupyter notebook notebooks/experiments.ipynb
 ## Требования
 
 - Python 3.8+
-- Все зависимости из `requirements.txt`
+- Все зависимости из `pyproject.toml`
 - API ключи для Telegram и vsegpt.ru
 - Доступ к интернету для загрузки данных
-
-## Лицензия
-
-[Укажите лицензию]
-
-## Автор
-
-[Укажите автора]
 
 # msu_llm_hw
