@@ -1,0 +1,4 @@
+{
+  "response": "{\n    \"sentiment\": \"positive\",\n    \"urgency\": \"low\",\n    \"event_type\": \"другое\",\n    \"mentions\": [\"OZON\"],\n    \"direction_prediction\": \"up\"\n}",
+  "prompt": "Проанализируй следующую новость и извлеки признаки:\n\nНовость:\nСидеть в акциях OZON очень хорошо\n\nИзвлеки следующую информацию в формате JSON:\n{\n    \"sentiment\": \"positive/negative/neutral\",\n    \"urgency\": \"high/medium/low\",\n    \"event_type\": \"корпоративные новости/макроэкономика/регуляторные/другое\",\n    \"mentions\": [\"список упоминаний тикеров или компаний\"],\n    \"direction_prediction\": \"up/down/neutral\"\n}\n\nЕсли новость не относится к указанному тикеру (GAZP), \nукажи direction_prediction как \"neutral\".\n\nОтветь только JSON, без дополнительного текста."
+}

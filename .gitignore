@@ -36,11 +36,6 @@ ENV/
 # Jupyter Notebook
 .ipynb_checkpoints
 
-# Data files (большие файлы)
-data/telegram/*.json
-data/moex/*.csv
-data/llm_cache/
-data/results/
 
 # Telegram session files
 *.session
