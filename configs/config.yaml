@@ -1,0 +1,60 @@
+# Конфигурация системы анализа новостей Telegram для прогноза MOEX
+
+# Параметры задачи
+task:
+  tickers: ["GAZP", "SBER", "LKOH"]  # Тикеры MOEX для анализа
+  window_hours: 24  # Окно новостей W (часы)
+  horizon_hours: 24  # Горизонт прогноза H (часы, до закрытия следующего торгового дня)
+  start_date: null  # Начальная дата для сбора данных
+  end_date: null  # Конечная дата для сбора данных
+  timezone: "Europe/Moscow"  # Таймзона (MSK)
+
+# Параметры Telegram
+telegram:
+  tgstat_api_token: "<INPUT HERE>"  # Токен TGstat API (из переменной окружения)
+  tgstat_base_url: "https://api.tgstat.ru"
+  telethon_session_name: "session"
+  telethon_api_id: "<INPUT HERE>"  # API ID (из переменной окружения)
+  telethon_api_hash: "<INPUT HERE>"  # API Hash (из переменной окружения)
+  whitelist_categories_path: null  # Путь к файлу с категориями (опционально)
+
+# Список каналов для анализа (можно указать вручную или оставить пустым для автоматического поиска)
+channels: 
+  - uri: "@MoscowExchangeOfficial"
+    category: "Мосбиржа"
+  - uri: "@moex_derivatives"
+    category: "Срочный рынок"
+  - uri: "@mbonds"
+    category: "Облигации MOEX"
+  - uri: "@investornammvb"
+    category: "Акции РФ"
+  - uri: "@finamalert"
+    category: "Брокер / идеи"
+  - uri: "@lemonfortea"
+    category: "Идеи / аналитика"
+  - uri: "@trader_chernyh"
+    category: "Трейдинг / аналитика"
+  # Пример:
+  # - uri: "@channel_name"
+  #   category: "Финансы"
+
+# Параметры LLM
+llm:
+  api_key: "<INPUT HERE>"  # API ключ для vsegpt.ru (из переменной окружения)
+  base_url: "https://api.vsegpt.ru/v1"
+  model: "google/gemini-2.5-flash-lite"  # Модель для использования
+  cache_dir: "data/llm_cache"  # Директория для кэширования ответов LLM
+
+# Параметры классификатора
+classifier:
+  method: "zero-shot"  # Метод: "zero-shot", "few-shot", "logistic", "gradient_boosting"
+
+# Пути к данным
+data:
+  telegram_output: "data/telegram/posts.json"  # Путь для сохранения постов из Telegram
+  moex_output: "data/moex/"  # Директория для сохранения котировок MOEX
+
+# Пути для результатов
+output:
+  results_path: "data/results/evaluation_results.json"  # Путь для сохранения результатов оценки
+
