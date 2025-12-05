@@ -6,7 +6,7 @@ import sys
 import json
 from pathlib import Path
 from datetime import datetime, timedelta
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 import yaml
 import pytz
 
@@ -61,12 +61,11 @@ class NewsAnalysisPipeline:
         classifier_method = classifier_config.get("method", "zero-shot")
         self.classifier = DirectionClassifier(method=classifier_method)
         
-        # LLM экстрактор признаков - инициализируем только если нужен
-        # Для zero-shot и few-shot LLM вызывается напрямую в классификаторе (через feature_extractor)
-        # Для logistic и gradient_boosting - это не-LLM классификаторы, они не должны вызывать LLM
-        # Проверяем, нужен ли LLM для выбранного метода
-        needs_llm = classifier_method in ["zero-shot", "few-shot"]
-        
+        # LLM экстрактор признаков - инициализируем для всех методов
+        # Для zero-shot и few-shot LLM вызывается напрямую в классификаторе
+        # Для logistic и gradient_boosting LLM используется для извлечения признаков
+        needs_llm = classifier_method in ["zero-shot", "few-shot", "logistic", "gradient_boosting"]
+
         if needs_llm:
             llm_config = self.config["llm"]
             self.llm_extractor = LLMFeatureExtractor(
@@ -182,22 +181,17 @@ class NewsAnalysisPipeline:
         
         # Проверяем, нужен ли LLM для извлечения признаков
         # Для zero-shot и few-shot признаки не нужны (LLM вызывается напрямую в классификаторе)
-        # Для logistic и gradient_boosting - это не-LLM классификаторы, они не должны вызывать LLM
+        # Для logistic и gradient_boosting нужны признаки, извлеченные через LLM
         classifier_method = self.classifier.method
-        
+
         if classifier_method in ["zero-shot", "few-shot"]:
             # Для этих методов признаки не извлекаются заранее
             # LLM будет вызван напрямую в классификаторе
             if verbose:
                 print(f"    Пропуск извлечения признаков для {ticker}: метод {classifier_method} использует LLM напрямую")
             return []
-        
-        # Для не-LLM классификаторов (logistic, gradient_boosting) не вызываем LLM
-        if classifier_method in ["logistic", "gradient_boosting"]:
-            if verbose:
-                print(f"    Пропуск извлечения признаков для {ticker}: метод {classifier_method} не использует LLM")
-            return []
-        
+
+        # Для logistic и gradient_boosting извлекаем признаки через LLM
         if not self.llm_extractor:
             if verbose:
                 print(f"    Пропуск извлечения признаков для {ticker}: LLM экстрактор не инициализирован")
@@ -231,6 +225,73 @@ class NewsAnalysisPipeline:
         
         return features
     
+    def prepare_training_data(
+        self,
+        timestamps: List[datetime],
+        posts: List[Post],
+        labels: List,
+        ticker: str,
+        window_hours: int,
+        verbose: bool = False,
+    ) -> Tuple[List[List], List[str]]:
+        """
+        Подготавливает данные для обучения ML-модели.
+
+        Args:
+            timestamps: Временные метки
+            posts: Все посты
+            labels: Метки для timestamps
+            ticker: Тикер
+            window_hours: Размер окна
+            verbose: Подробный вывод
+
+        Returns:
+            Кортеж (features_list, labels_list)
+        """
+        features_list = []
+        labels_list = []
+
+        # Создаем словарь меток по времени для быстрого поиска
+        label_dict = {label.timestamp: label.direction for label in labels}
+
+        for idx, timestamp in enumerate(timestamps):
+            timestamp = timestamp.astimezone(self.msk_tz)
+
+            # Определяем окно новостей
+            window_end = timestamp
+            window_start = timestamp - timedelta(hours=window_hours)
+
+            # Фильтруем посты по окну
+            window_posts = self.process_news(posts, window_start, window_end, verbose=False)
+
+            if not window_posts:
+                continue
+
+            # Извлекаем признаки
+            features = self.extract_features_for_ticker(window_posts, ticker, verbose=False)
+
+            if not features:
+                continue
+
+            # Находим метку
+            closest_label = None
+            min_diff = timedelta.max
+
+            for label in labels:
+                diff = abs((timestamp - label.timestamp).total_seconds())
+                if diff < min_diff.total_seconds():
+                    min_diff = timedelta(seconds=diff)
+                    closest_label = label
+
+            if closest_label and min_diff < timedelta(days=1):
+                features_list.append(features)
+                labels_list.append(closest_label.direction)
+
+            if verbose and (idx + 1) % 20 == 0:
+                print(f"    Подготовлено {idx+1}/{len(timestamps)} примеров...")
+
+        return features_list, labels_list
+
     def make_predictions(
         self,
         timestamps: List[datetime],
@@ -292,14 +353,16 @@ class NewsAnalysisPipeline:
                     if show_debug:
                         print(f"      Пропуск: не удалось извлечь признаки")
                     continue
-            
+
             # Делаем прогноз
-            # Для zero-shot и few-shot нужен пост, берем последний
-            post_for_prediction = window_posts[-1] if window_posts else None
-            
-            result = self.classifier.predict_with_confidence(
-                features, post_for_prediction, ticker
-            )
+            if self.classifier.method in ["zero-shot", "few-shot"] and self.llm_extractor:
+                # Для LLM-методов агрегируем предсказания по всем постам в окне
+                result = self.llm_extractor.aggregate_window_predictions(window_posts, ticker, method="weighted")
+                if show_debug:
+                    print(f"      Агрегировано {result.get('predictions_count', 0)} предсказаний из {len(window_posts)} постов")
+            else:
+                # Для ML-методов используем классификатор
+                result = self.classifier.predict_with_confidence(features, None, ticker)
             
             prediction = Prediction(
                 ticker=ticker,
@@ -322,6 +385,58 @@ class NewsAnalysisPipeline:
         
         return predictions
     
+    def _save_predictions_log(self, all_predictions: Dict, all_labels: Dict, results_path: str):
+        """
+        Сохраняет детальный лог предсказаний для воспроизводимости.
+
+        Args:
+            all_predictions: Словарь предсказаний по тикерам
+            all_labels: Словарь меток по тикерам
+            results_path: Путь к файлу результатов
+        """
+        log_path = Path(results_path).parent / "predictions_log.json"
+
+        predictions_log = {
+            "timestamp": datetime.now(self.msk_tz).isoformat(),
+            "config": {
+                "method": self.classifier.method,
+                "window_hours": self.config["task"]["window_hours"],
+                "horizon_hours": self.config["task"]["horizon_hours"],
+                "tickers": self.config["task"]["tickers"],
+            },
+            "predictions": {},
+        }
+
+        for ticker, predictions in all_predictions.items():
+            labels = all_labels.get(ticker, [])
+
+            ticker_predictions = []
+            for pred in predictions:
+                # Находим соответствующую метку
+                actual = None
+                for label in labels:
+                    diff = abs((pred.timestamp - label.timestamp).total_seconds())
+                    if diff < 86400:  # < 1 день
+                        actual = label.direction
+                        break
+
+                ticker_predictions.append({
+                    "timestamp": pred.timestamp.isoformat(),
+                    "window_start": pred.news_window_start.isoformat(),
+                    "window_end": pred.news_window_end.isoformat(),
+                    "predicted": pred.predicted_direction,
+                    "confidence": pred.confidence,
+                    "actual": actual,
+                    "correct": pred.predicted_direction == actual if actual else None,
+                })
+
+            predictions_log["predictions"][ticker] = ticker_predictions
+
+        with open(log_path, "w", encoding="utf-8") as f:
+            json.dump(predictions_log, f, ensure_ascii=False, indent=2)
+
+        print(f"  Лог предсказаний сохранен в {log_path}")
+
     async def run(self):
         """
         Запускает полный пайплайн end-to-end.
@@ -479,14 +594,56 @@ class NewsAnalysisPipeline:
         print("\n[5/6] Извлечение признаков и прогнозы...")
         print(f"  Всего постов для анализа: {len(posts)}")
         print(f"  Временных точек: {len(timestamps)}")
-        
+        print(f"  Метод классификации: {self.classifier.method}")
+
         all_predictions = {}
-        
-        for ticker in tickers:
-            print(f"\n  Обработка тикера {ticker}...")
-            predictions = self.make_predictions(timestamps, posts, ticker, window_hours, verbose=True)
-            all_predictions[ticker] = predictions
-            print(f"  Сделано {len(predictions)} прогнозов для {ticker}")
+
+        # Для ML-методов нужен train/test split
+        classifier_method = self.classifier.method
+        is_ml_method = classifier_method in ["logistic", "gradient_boosting"]
+
+        if is_ml_method and timestamps:
+            # Сортируем временные точки по времени
+            timestamps_sorted = sorted(timestamps)
+
+            # Train/test split по времени (80/20)
+            split_idx = int(len(timestamps_sorted) * 0.8)
+            train_timestamps = timestamps_sorted[:split_idx]
+            test_timestamps = timestamps_sorted[split_idx:]
+
+            print(f"  Train/test split: {len(train_timestamps)} train / {len(test_timestamps)} test")
+
+            for ticker in tickers:
+                print(f"\n  Обработка тикера {ticker}...")
+                labels = all_labels.get(ticker, [])
+
+                # Подготовка обучающих данных
+                print(f"    Извлечение признаков для обучения ({len(train_timestamps)} точек)...")
+                train_features, train_labels = self.prepare_training_data(
+                    train_timestamps, posts, labels, ticker, window_hours, verbose=True
+                )
+
+                if len(train_features) < 10:
+                    print(f"    Предупреждение: недостаточно обучающих данных ({len(train_features)} < 10)")
+                    all_predictions[ticker] = []
+                    continue
+
+                print(f"    Обучение модели на {len(train_features)} примерах...")
+                self.classifier.train(train_features, train_labels, model_type=classifier_method)
+                print(f"    Модель обучена!")
+
+                # Прогнозы на тестовых данных
+                print(f"    Создание прогнозов на тестовых данных ({len(test_timestamps)} точек)...")
+                predictions = self.make_predictions(test_timestamps, posts, ticker, window_hours, verbose=True)
+                all_predictions[ticker] = predictions
+                print(f"  Сделано {len(predictions)} прогнозов для {ticker}")
+        else:
+            # Для LLM-методов используем все данные
+            for ticker in tickers:
+                print(f"\n  Обработка тикера {ticker}...")
+                predictions = self.make_predictions(timestamps, posts, ticker, window_hours, verbose=True)
+                all_predictions[ticker] = predictions
+                print(f"  Сделано {len(predictions)} прогнозов для {ticker}")
         
         # Шаг 6: Оценка качества
         print("\n[6/6] Оценка качества...")
@@ -525,11 +682,14 @@ class NewsAnalysisPipeline:
             print(f"  Оценено {total_evaluated} примеров")
             # Выводим результаты
             self.evaluator.print_results()
-            
+
             # Сохраняем результаты
             results_path = self.config["output"]["results_path"]
             Path(results_path).parent.mkdir(parents=True, exist_ok=True)
             self.evaluator.save_results(results_path)
+
+            # Сохраняем детальный лог предсказаний для воспроизводимости
+            self._save_predictions_log(all_predictions, all_labels, results_path)
         
         print("\n" + "=" * 60)
         print("ПАЙПЛАЙН ЗАВЕРШЕН")

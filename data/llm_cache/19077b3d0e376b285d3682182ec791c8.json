@@ -1,4 +1,0 @@
-{
-  "response": "{\n    \"sentiment\": \"positive\",\n    \"urgency\": \"medium\",\n    \"event_type\": \"макроэкономика\",\n    \"mentions\": [\"EURO STOXX 50\", \"STOX\"],\n    \"direction_prediction\": \"neutral\"\n}",
-  "prompt": "Проанализируй следующую новость и извлеки признаки:\n\nНовость:\n**Индекс EURO STOXX 50 - максимум с 2007 года!** Участвовать в движении индекса европейского фондового рынка можно с помощью фьючерса [STOX]( #breakingnews\n\nИзвлеки следующую информацию в формате JSON:\n{\n    \"sentiment\": \"positive/negative/neutral\",\n    \"urgency\": \"high/medium/low\",\n    \"event_type\": \"корпоративные новости/макроэкономика/регуляторные/другое\",\n    \"mentions\": [\"список упоминаний тикеров или компаний\"],\n    \"direction_prediction\": \"up/down/neutral\"\n}\n\nЕсли новость не относится к указанному тикеру (GAZP), \nукажи direction_prediction как \"neutral\".\n\nОтветь только JSON, без дополнительного текста."
-}

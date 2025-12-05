@@ -1,4 +1,0 @@
-{
-  "response": "{\n    \"sentiment\": \"neutral\",\n    \"urgency\": \"low\",\n    \"event_type\": \"корпоративные новости\",\n    \"mentions\": [\"Nordgold\"],\n    \"direction_prediction\": \"neutral\"\n}",
-  "prompt": "Проанализируй следующую новость и извлеки признаки:\n\nНовость:\nЦБ РФ ЗАРЕГИСТРИРОВАЛ ВЫПУСК ЗАМЕЩАЮЩИХ ОБЛИГАЦИЙ РОССИЙСКОЙ СТРУКТУРЫ NORDGOLD - РАСКРЫТИЕ\n\nИзвлеки следующую информацию в формате JSON:\n{\n    \"sentiment\": \"positive/negative/neutral\",\n    \"urgency\": \"high/medium/low\",\n    \"event_type\": \"корпоративные новости/макроэкономика/регуляторные/другое\",\n    \"mentions\": [\"список упоминаний тикеров или компаний\"],\n    \"direction_prediction\": \"up/down/neutral\"\n}\n\nЕсли новость не относится к указанному тикеру (GAZP), \nукажи direction_prediction как \"neutral\".\n\nОтветь только JSON, без дополнительного текста."
-}

@@ -11,7 +11,21 @@ from src.models import Post, NewsFeature
 
 class LLMFeatureExtractor:
     """Извлекает признаки из новостей через LLM API."""
-    
+
+    # Маппинг тикеров на названия компаний
+    TICKER_INFO = {
+        "GAZP": {"name": "Газпром", "sector": "нефтегаз", "keywords": ["газпром", "газ", "gazprom"]},
+        "SBER": {"name": "Сбербанк", "sector": "банки", "keywords": ["сбербанк", "сбер", "sber", "sberbank"]},
+        "LKOH": {"name": "Лукойл", "sector": "нефтегаз", "keywords": ["лукойл", "lukoil"]},
+        "ROSN": {"name": "Роснефть", "sector": "нефтегаз", "keywords": ["роснефть", "rosneft"]},
+        "YNDX": {"name": "Яндекс", "sector": "IT", "keywords": ["яндекс", "yandex"]},
+        "MGNT": {"name": "Магнит", "sector": "ритейл", "keywords": ["магнит", "magnit"]},
+        "GMKN": {"name": "Норильский никель", "sector": "металлы", "keywords": ["норникель", "норильский никель", "norilsk"]},
+        "NVTK": {"name": "Новатэк", "sector": "нефтегаз", "keywords": ["новатэк", "novatek"]},
+        "VTBR": {"name": "ВТБ", "sector": "банки", "keywords": ["втб", "vtb"]},
+        "MTSS": {"name": "МТС", "sector": "телеком", "keywords": ["мтс", "mts"]},
+    }
+
     # JSON-схемы для разных типов запросов
     FEATURES_SCHEMA = {
         "type": "json_schema",
@@ -310,28 +324,45 @@ class LLMFeatureExtractor:
     def zero_shot_classify_with_confidence(self, post: Post, ticker: str) -> Dict[str, Any]:
         """
         Zero-shot классификация с оценкой уверенности.
-        
+
         Args:
             post: Пост из Telegram
             ticker: Тикер акции
-        
+
         Returns:
             Словарь с direction и confidence
         """
-        system_prompt = """Ты финансовый аналитик. Твоя задача - предсказать направление 
-изменения цены акции на основе новости. Отвечай в формате JSON с полями "direction" и "confidence"."""
-        
-        prompt = f"""На основе следующей новости предскажи направление изменения цены акции {ticker}:
+        # Получаем информацию о компании
+        ticker_info = self.TICKER_INFO.get(ticker, {"name": ticker, "sector": "неизвестно", "keywords": [ticker.lower()]})
+        company_name = ticker_info["name"]
+        sector = ticker_info["sector"]
 
+        system_prompt = f"""Ты опытный финансовый аналитик российского фондового рынка.
+Твоя задача - предсказать направление изменения цены акции на основе новости.
+
+Компания для анализа: {company_name} (тикер: {ticker}, сектор: {sector})
+Горизонт прогноза: до закрытия следующего торгового дня на Московской бирже.
+
+Правила анализа:
+1. Если новость напрямую касается компании - оцени влияние на цену
+2. Если новость о секторе ({sector}) - учти косвенное влияние
+3. Если новость макроэкономическая - оцени влияние на рынок в целом
+4. Позитивные новости (рост прибыли, дивиденды, контракты, рост цен на сырье для нефтегаза) → "up"
+5. Негативные новости (убытки, санкции, аварии, падение цен на сырье) → "down"
+6. Если новость не релевантна компании - выбери направление с низкой уверенностью
+
+Отвечай строго в формате JSON."""
+
+        prompt = f"""Проанализируй новость и предскажи направление цены акции {ticker} ({company_name}):
+
+НОВОСТЬ:
 {post.text}
 
 Ответь в формате JSON:
 {{
     "direction": "up" или "down",
-    "confidence": число от 0 до 1 (уверенность в предсказании)
-}}
-
-Ответь только JSON, без дополнительного текста."""
+    "confidence": число от 0.0 до 1.0 (уверенность в прогнозе)
+}}"""
         
         try:
             # Используем JSON-схему для гарантии правильного формата
@@ -510,6 +541,77 @@ class LLMFeatureExtractor:
                 "up_count": up_count,
                 "down_count": down_count,
             }
-        
+
         return {"direction": "up", "confidence": 0.5}
+
+    def aggregate_window_predictions(
+        self, posts: List[Post], ticker: str, method: str = "weighted"
+    ) -> Dict[str, Any]:
+        """
+        Агрегирует предсказания для всех постов в окне.
+
+        Args:
+            posts: Список постов в окне
+            ticker: Тикер акции
+            method: Метод агрегации ("weighted" - взвешенное по confidence, "majority" - голосование)
+
+        Returns:
+            Агрегированный результат с direction и confidence
+        """
+        if not posts:
+            return {"direction": "up", "confidence": 0.5}
+
+        predictions = []
+        for post in posts:
+            try:
+                pred = self.zero_shot_classify_with_confidence(post, ticker)
+                predictions.append(pred)
+            except Exception as e:
+                print(f"Ошибка при классификации поста {post.id}: {e}")
+                continue
+
+        if not predictions:
+            return {"direction": "up", "confidence": 0.5}
+
+        if method == "weighted":
+            # Взвешенное голосование по confidence
+            up_weight = sum(p["confidence"] for p in predictions if p["direction"] == "up")
+            down_weight = sum(p["confidence"] for p in predictions if p["direction"] == "down")
+
+            total_weight = up_weight + down_weight
+            if total_weight == 0:
+                return {"direction": "up", "confidence": 0.5}
+
+            if up_weight > down_weight:
+                direction = "up"
+                confidence = up_weight / total_weight
+            else:
+                direction = "down"
+                confidence = down_weight / total_weight
+
+        else:  # majority
+            up_count = sum(1 for p in predictions if p["direction"] == "up")
+            down_count = len(predictions) - up_count
+
+            if up_count > down_count:
+                direction = "up"
+                confidence = up_count / len(predictions)
+            elif down_count > up_count:
+                direction = "down"
+                confidence = down_count / len(predictions)
+            else:
+                # При равенстве - среднее по confidence
+                avg_up_conf = sum(p["confidence"] for p in predictions if p["direction"] == "up") / max(up_count, 1)
+                avg_down_conf = sum(p["confidence"] for p in predictions if p["direction"] == "down") / max(down_count, 1)
+                direction = "up" if avg_up_conf >= avg_down_conf else "down"
+                confidence = 0.5
+
+        return {
+            "direction": direction,
+            "confidence": float(confidence),
+            "total_posts": len(posts),
+            "predictions_count": len(predictions),
+            "up_count": sum(1 for p in predictions if p["direction"] == "up"),
+            "down_count": sum(1 for p in predictions if p["direction"] == "down"),
+        }
 

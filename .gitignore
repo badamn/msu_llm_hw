@@ -36,6 +36,9 @@ ENV/
 # Jupyter Notebook
 .ipynb_checkpoints
 
+# Config with real API keys (use config.example.yaml as template)
+configs/config.yaml
+configs/config_ci.yaml
 
 # Telegram session files
 *.session

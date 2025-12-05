@@ -1,0 +1,143 @@
+name: Run Experiment and Commit Results
+
+on:
+  # Запуск вручную из GitHub UI
+  workflow_dispatch:
+    inputs:
+      method:
+        description: 'Classification method'
+        required: true
+        default: 'zero-shot'
+        type: choice
+        options:
+          - zero-shot
+          - few-shot
+          - logistic
+          - gradient_boosting
+      ticker:
+        description: 'Ticker (optional, leave empty for all)'
+        required: false
+        default: ''
+
+  # Запуск по расписанию (каждый день в 20:00 MSK = 17:00 UTC)
+  schedule:
+    - cron: '0 17 * * *'
+
+jobs:
+  run-experiment:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Create config with secrets
+        run: |
+          cat > configs/config_ci.yaml << 'EOF'
+          # CI Configuration - secrets from GitHub
+          task:
+            tickers: ["GAZP", "SBER", "LKOH"]
+            window_hours: 24
+            horizon_hours: 24
+            start_date: null
+            end_date: null
+            timezone: "Europe/Moscow"
+
+          telegram:
+            tgstat_api_token: "${{ secrets.TGSTAT_API_TOKEN }}"
+            tgstat_base_url: "https://api.tgstat.ru"
+            telethon_session_name: "session"
+            telethon_api_id: "${{ secrets.TELETHON_API_ID }}"
+            telethon_api_hash: "${{ secrets.TELETHON_API_HASH }}"
+            whitelist_categories_path: null
+
+          channels:
+            - uri: "@MoscowExchangeOfficial"
+              category: "Мосбиржа"
+            - uri: "@moex_derivatives"
+              category: "Срочный рынок"
+            - uri: "@mbonds"
+              category: "Облигации MOEX"
+            - uri: "@investornammvb"
+              category: "Акции РФ"
+            - uri: "@finamalert"
+              category: "Брокер / идеи"
+            - uri: "@lemonfortea"
+              category: "Идеи / аналитика"
+            - uri: "@trader_chernyh"
+              category: "Трейдинг / аналитика"
+
+          llm:
+            api_key: "${{ secrets.LLM_API_KEY }}"
+            base_url: "https://api.vsegpt.ru/v1"
+            model: "google/gemini-2.5-flash-lite"
+            cache_dir: "data/llm_cache"
+
+          classifier:
+            method: "${{ github.event.inputs.method || 'zero-shot' }}"
+
+          data:
+            telegram_output: "data/telegram/posts.json"
+            moex_output: "data/moex/"
+
+          output:
+            results_path: "data/results/evaluation_results.json"
+          EOF
+
+      - name: Run experiment
+        run: |
+          TICKER_ARG=""
+          if [ -n "${{ github.event.inputs.ticker }}" ]; then
+            TICKER_ARG="--ticker ${{ github.event.inputs.ticker }}"
+          fi
+
+          python run_experiment.py --config configs/config_ci.yaml $TICKER_ARG
+        env:
+          PYTHONUNBUFFERED: "1"
+
+      - name: Commit and push results
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+
+          # Add results
+          git add data/results/ || true
+          git add data/llm_cache/ || true
+
+          # Create commit message with timestamp and method
+          METHOD="${{ github.event.inputs.method || 'zero-shot' }}"
+          TIMESTAMP=$(date -u +"%Y-%m-%d %H:%M UTC")
+
+          # Check if there are changes to commit
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Experiment results: ${METHOD} at ${TIMESTAMP}
+
+            Method: ${METHOD}
+            Triggered by: ${{ github.event_name }}
+            Run ID: ${{ github.run_id }}"
+
+            git push
+          fi
+
+      - name: Upload results as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: experiment-results-${{ github.run_id }}
+          path: |
+            data/results/
+          retention-days: 30

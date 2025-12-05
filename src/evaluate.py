@@ -3,6 +3,7 @@ from typing import List, Dict, Tuple
 import numpy as np
 from sklearn.metrics import (
     accuracy_score,
+    balanced_accuracy_score,
     confusion_matrix,
     precision_score,
     recall_score,
@@ -23,13 +24,57 @@ class ModelEvaluator:
     def add_prediction(self, prediction: str, label: str):
         """
         Добавляет предсказание и метку.
-        
+
         Args:
             prediction: Предсказание ("up" или "down")
             label: Истинная метка ("up" или "down")
         """
         self.predictions.append(prediction)
         self.labels.append(label)
+
+    def _bootstrap_confidence_interval(
+        self, y_true: List[int], y_pred: List[int], n_bootstrap: int = 1000, confidence: float = 0.95
+    ) -> Tuple[float, float]:
+        """
+        Вычисляет доверительный интервал для balanced accuracy методом bootstrap.
+
+        Args:
+            y_true: Истинные метки
+            y_pred: Предсказанные метки
+            n_bootstrap: Количество bootstrap итераций
+            confidence: Уровень доверия (по умолчанию 95%)
+
+        Returns:
+            Кортеж (нижняя граница, верхняя граница)
+        """
+        if len(y_true) < 2:
+            return (0.0, 1.0)
+
+        y_true = np.array(y_true)
+        y_pred = np.array(y_pred)
+        n_samples = len(y_true)
+
+        bootstrap_scores = []
+        rng = np.random.RandomState(42)
+
+        for _ in range(n_bootstrap):
+            indices = rng.randint(0, n_samples, n_samples)
+            y_true_boot = y_true[indices]
+            y_pred_boot = y_pred[indices]
+
+            # Проверяем, что есть оба класса в bootstrap выборке
+            if len(np.unique(y_true_boot)) > 1:
+                score = balanced_accuracy_score(y_true_boot, y_pred_boot)
+                bootstrap_scores.append(score)
+
+        if not bootstrap_scores:
+            return (0.0, 1.0)
+
+        alpha = 1 - confidence
+        lower = np.percentile(bootstrap_scores, alpha / 2 * 100)
+        upper = np.percentile(bootstrap_scores, (1 - alpha / 2) * 100)
+
+        return (float(lower), float(upper))
     
     def calculate_metrics(self) -> Dict[str, float]:
         """
@@ -46,16 +91,23 @@ class ModelEvaluator:
         y_true = [1 if l == "up" else 0 for l in self.labels]
         
         accuracy = accuracy_score(y_true, y_pred)
+        balanced_acc = balanced_accuracy_score(y_true, y_pred)
         precision = precision_score(y_true, y_pred, zero_division=0)
         recall = recall_score(y_true, y_pred, zero_division=0)
         f1 = f1_score(y_true, y_pred, zero_division=0)
-        
+
         # Confusion matrix
         cm = confusion_matrix(y_true, y_pred)
         tn, fp, fn, tp = cm.ravel() if cm.size == 4 else (0, 0, 0, 0)
-        
+
+        # Bootstrap confidence interval for balanced accuracy
+        ci_lower, ci_upper = self._bootstrap_confidence_interval(y_true, y_pred)
+
         metrics = {
             "accuracy": float(accuracy),
+            "balanced_accuracy": float(balanced_acc),
+            "balanced_accuracy_ci_lower": float(ci_lower),
+            "balanced_accuracy_ci_upper": float(ci_upper),
             "precision": float(precision),
             "recall": float(recall),
             "f1_score": float(f1),
@@ -64,7 +116,7 @@ class ModelEvaluator:
             "false_positives": int(fp),
             "false_negatives": int(fn),
         }
-        
+
         return metrics
     
     def get_confusion_matrix(self) -> np.ndarray:
@@ -110,6 +162,8 @@ class ModelEvaluator:
         print("=" * 50)
         
         print("\nМетрики:")
+        print(f"  Balanced Accuracy: {metrics.get('balanced_accuracy', 0):.4f} "
+              f"[{metrics.get('balanced_accuracy_ci_lower', 0):.4f}, {metrics.get('balanced_accuracy_ci_upper', 0):.4f}] (95% CI)")
         print(f"  Accuracy:  {metrics.get('accuracy', 0):.4f}")
         print(f"  Precision: {metrics.get('precision', 0):.4f}")
         print(f"  Recall:    {metrics.get('recall', 0):.4f}")

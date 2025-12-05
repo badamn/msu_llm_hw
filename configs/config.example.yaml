@@ -1,0 +1,57 @@
+# Пример конфигурации системы анализа новостей Telegram для прогноза MOEX
+# Скопируйте этот файл в config.yaml и заполните свои API ключи
+
+# Параметры задачи
+task:
+  tickers: ["GAZP", "SBER", "LKOH"]  # Тикеры MOEX для анализа
+  window_hours: 24  # Окно новостей W (часы)
+  horizon_hours: 24  # Горизонт прогноза H (часы, до закрытия следующего торгового дня)
+  start_date: null  # Начальная дата для сбора данных
+  end_date: null  # Конечная дата для сбора данных
+  timezone: "Europe/Moscow"  # Таймзона (MSK)
+
+# Параметры Telegram
+telegram:
+  tgstat_api_token: "<YOUR_TGSTAT_TOKEN>"  # Получить на https://tgstat.ru/
+  tgstat_base_url: "https://api.tgstat.ru"
+  telethon_session_name: "session"
+  telethon_api_id: "<YOUR_TELEGRAM_API_ID>"  # Получить на https://my.telegram.org/
+  telethon_api_hash: "<YOUR_TELEGRAM_API_HASH>"
+  whitelist_categories_path: null
+
+# Список каналов для анализа
+channels:
+  - uri: "@MoscowExchangeOfficial"
+    category: "Мосбиржа"
+  - uri: "@moex_derivatives"
+    category: "Срочный рынок"
+  - uri: "@mbonds"
+    category: "Облигации MOEX"
+  - uri: "@investornammvb"
+    category: "Акции РФ"
+  - uri: "@finamalert"
+    category: "Брокер / идеи"
+  - uri: "@lemonfortea"
+    category: "Идеи / аналитика"
+  - uri: "@trader_chernyh"
+    category: "Трейдинг / аналитика"
+
+# Параметры LLM
+llm:
+  api_key: "<YOUR_VSEGPT_API_KEY>"  # Получить на https://vsegpt.ru/
+  base_url: "https://api.vsegpt.ru/v1"
+  model: "google/gemini-2.5-flash-lite"
+  cache_dir: "data/llm_cache"
+
+# Параметры классификатора
+classifier:
+  method: "zero-shot"  # Метод: "zero-shot", "few-shot", "logistic", "gradient_boosting"
+
+# Пути к данным
+data:
+  telegram_output: "data/telegram/posts.json"
+  moex_output: "data/moex/"
+
+# Пути для результатов
+output:
+  results_path: "data/results/evaluation_results.json"
