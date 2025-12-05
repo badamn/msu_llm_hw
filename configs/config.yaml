@@ -11,11 +11,11 @@ task:
 
 # Параметры Telegram
 telegram:
-  tgstat_api_token: "57ad45ea26bbaadb64756d102551f096"  # Токен TGstat API (из переменной окружения)
+  tgstat_api_token: "..."  # Токен TGstat API (из переменной окружения)
   tgstat_base_url: "https://api.tgstat.ru"
   telethon_session_name: "session"
-  telethon_api_id: "22721889"  # API ID (из переменной окружения)
-  telethon_api_hash: "10f704edab2fefb0cadbabd867fbb37b"  # API Hash (из переменной окружения)
+  telethon_api_id: "..."  # API ID (из переменной окружения)
+  telethon_api_hash: "..."  # API Hash (из переменной окружения)
   whitelist_categories_path: null  # Путь к файлу с категориями (опционально)
 
 # Список каналов для анализа (можно указать вручную или оставить пустым для автоматического поиска)
@@ -40,7 +40,7 @@ channels:
 
 # Параметры LLM
 llm:
-  api_key: "sk-or-vv-f7219a032af45b65ecbc1f1dc670ff966889afaefe005d8ff2c99a81a0870013"  # API ключ для vsegpt.ru (из переменной окружения)
+  api_key: "..."  # API ключ для vsegpt.ru (из переменной окружения)
   base_url: "https://api.vsegpt.ru/v1"
   model: "google/gemini-2.5-flash-lite"  # Модель для использования
   cache_dir: "data/llm_cache"  # Директория для кэширования ответов LLM
