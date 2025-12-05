@@ -1,4 +1,0 @@
-{
-  "response": "{\n    \"sentiment\": \"negative\",\n    \"urgency\": \"high\",\n    \"event_type\": \"макроэкономика\",\n    \"mentions\": [\"RGBI\"],\n    \"direction_prediction\": \"down\"\n}",
-  "prompt": "Проанализируй следующую новость и извлеки признаки:\n\nНовость:\n**Индекс RGBI снижается весь декабрь в** **преддверии заседания ЦБ** Участвовать в движении индекса гособлигаций можно с помощью фьючерса [RGBI]( #breakingnews\n\nИзвлеки следующую информацию в формате JSON:\n{\n    \"sentiment\": \"positive/negative/neutral\",\n    \"urgency\": \"high/medium/low\",\n    \"event_type\": \"корпоративные новости/макроэкономика/регуляторные/другое\",\n    \"mentions\": [\"список упоминаний тикеров или компаний\"],\n    \"direction_prediction\": \"up/down/neutral\"\n}\n\nЕсли новость не относится к указанному тикеру (GAZP), \nукажи direction_prediction как \"neutral\".\n\nОтветь только JSON, без дополнительного текста."
-}
